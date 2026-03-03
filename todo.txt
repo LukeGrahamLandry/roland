@@ -1,0 +1,18 @@
+
+- i fail 2 because i don't detect undefined symbols.
+    - tests/(external_procedures/unicode_external_proc.rol, link/link_unresolved.rol) 
+- make depending on ferb less annoying. 
+    - currently need to manually fetch it which i do in 
+        https://git.sr.ht/~lukegrahamlandry/rustc_codegen_ferb/tree/main/item/.build.yml
+    - would be nice if it worked for their web thing too 
+        but wasm build of my backend depends on my examples/os/host/web.fr which is quite invasive.
+    - always return error instead of panicking
+    - more sane api than compile_aot()
+- run the success tests jitted as well
+- try my import_wasm as the wasm_executor
+- i can target macos/arm/rv too 
+    - need different magic numbers like lib/amd64.rol
+- i can do wasm too 
+    - probably needs some work because im wonky about pointer types in the abi 
+    - do they have any benchmarks to see if my opt is worth it? i expect i emit dumber wasm. 
+- try using my import_c when linking lib/raylib.rol

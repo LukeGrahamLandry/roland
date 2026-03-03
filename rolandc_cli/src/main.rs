@@ -209,6 +209,8 @@ enum QbeCompilationError {
    LdExecution(Option<ExitStatus>),
    QbeInvocation(std::io::Error),
    QbeExecution(ExitStatus),
+   #[cfg(feature = "ferb")]
+   Ferb(String),
 }
 
 impl Display for QbeCompilationError {
@@ -235,6 +237,8 @@ impl Display for QbeCompilationError {
          QbeCompilationError::QbeInvocation(io_err) => {
             write!(f, "Failed to invoke qbe: {}", io_err)
          }
+         #[cfg(feature = "ferb")]
+         QbeCompilationError::Ferb(msg) => write!(f, "ferb failed: {}", msg),
       }
    }
 }
@@ -247,56 +251,101 @@ fn compile_qbe(
    link_requests: impl IntoIterator<Item = impl AsRef<str>>,
    freestanding: bool,
 ) -> std::result::Result<(), QbeCompilationError> {
-   fn assemble_file(asm_path: &Path) -> Result<PathBuf, QbeCompilationError> {
-      let mut the_object_path = asm_path.to_owned();
-      the_object_path.set_extension("o");
-      match Command::new("as")
-         .arg("-o")
-         .arg(&the_object_path)
-         .arg(asm_path)
-         .status()
-      {
-         Ok(stat) if stat.success() => Ok(the_object_path),
-         Ok(stat) => Err(QbeCompilationError::AsExecution(stat)),
-         Err(e) => Err(QbeCompilationError::AsInvocation(e)),
-      }
-   }
-   let mut asm_path = ssa_path.clone();
-   asm_path.set_extension("s");
-   let mut qbe_command = if let Some(extant_local_qbe) = std::env::current_exe()
-      .ok()
-      .map(|mut x| {
-         x.set_file_name("qbe");
-         x
-      })
-      .filter(|x| x.exists())
-   {
-      Command::new(extant_local_qbe)
-   } else {
-      Command::new("qbe")
-   };
-
-   match qbe_command.arg("-o").arg(&asm_path).arg(&ssa_path).status() {
-      Ok(stat) if stat.success() => (),
-      Ok(stat) => return Err(QbeCompilationError::QbeExecution(stat)),
-      Err(e) => return Err(QbeCompilationError::QbeInvocation(e)),
-   }
-
-   let program_object_path = assemble_file(&asm_path)?;
-   let mut syscall_lib_path = asm_path.clone();
-   syscall_lib_path.set_file_name(format!("{}_syscall.s", ssa_path.file_stem().unwrap().to_string_lossy()));
-   let syscall_lib_bytes = include_bytes!("syscall.s");
-   File::create(&syscall_lib_path)
-      .unwrap()
-      .write_all(syscall_lib_bytes)
-      .unwrap();
-   let syscall_object_path = assemble_file(&syscall_lib_path)?;
-
    let the_final_path = if let Some(final_path) = final_path {
       final_path
    } else {
       ssa_path.set_extension("");
-      ssa_path
+      ssa_path.clone()
+   };
+
+   let link_requests = link_requests.into_iter().collect::<Vec<_>>();
+   #[cfg(feature = "ferb")]
+   let program_object_path = {
+      let mut out = ssa_path.clone();
+      out.set_extension("o");
+      let mut ssa_text = std::fs::read_to_string(&ssa_path).unwrap();
+      let no_linker = link_requests.len() == 0;
+      ssa_text += include_str!("syscall.ssa");
+      if no_linker {
+         out = the_final_path.clone();
+      }
+      let obj = unsafe {
+         ferb::compile_aot(
+            ssa_text.as_bytes(),
+            "_start",
+            "",
+            ferb::Arch::Amd64,
+            ferb::Os::Linux,
+            if no_linker {
+               ferb::Artifact::Exe
+            } else {
+               ferb::Artifact::Relocatable
+            },
+            freestanding,
+            false,
+         )
+      };
+      let obj = obj.map_err(|e| QbeCompilationError::Ferb(e))?;
+      std::fs::write(&out, obj).unwrap();
+      if no_linker {
+         #[cfg(target_os = "windows")]
+         compile_error!("franca doesn't support windows anyway");
+
+         // only valuable service provided by the linker
+         use std::os::unix::fs::PermissionsExt;
+         std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o777)).unwrap();
+         return Ok(());
+      }
+      out
+   };
+   #[cfg(not(feature = "ferb"))]
+   let (program_object_path, syscall_object_path) = {
+      fn assemble_file(asm_path: &Path) -> Result<PathBuf, QbeCompilationError> {
+         let mut the_object_path = asm_path.to_owned();
+         the_object_path.set_extension("o");
+         match Command::new("as")
+            .arg("-o")
+            .arg(&the_object_path)
+            .arg(asm_path)
+            .status()
+         {
+            Ok(stat) if stat.success() => Ok(the_object_path),
+            Ok(stat) => Err(QbeCompilationError::AsExecution(stat)),
+            Err(e) => Err(QbeCompilationError::AsInvocation(e)),
+         }
+      }
+
+      let mut asm_path = ssa_path.clone();
+      asm_path.set_extension("s");
+      let mut qbe_command = if let Some(extant_local_qbe) = std::env::current_exe()
+         .ok()
+         .map(|mut x| {
+            x.set_file_name("qbe");
+            x
+         })
+         .filter(|x| x.exists())
+      {
+         Command::new(extant_local_qbe)
+      } else {
+         Command::new("qbe")
+      };
+   
+      match qbe_command.arg("-o").arg(&asm_path).arg(&ssa_path).status() {
+         Ok(stat) if stat.success() => (),
+         Ok(stat) => return Err(QbeCompilationError::QbeExecution(stat)),
+         Err(e) => return Err(QbeCompilationError::QbeInvocation(e)),
+      }
+
+      let program_object_path = assemble_file(&asm_path)?;
+      let mut syscall_lib_path = ssa_path.clone();
+      syscall_lib_path.set_file_name(format!("{}_syscall.s", ssa_path.file_stem().unwrap().to_string_lossy()));
+      let syscall_lib_bytes = include_bytes!("syscall.s");
+      File::create(&syscall_lib_path)
+         .unwrap()
+         .write_all(syscall_lib_bytes)
+         .unwrap();
+      let syscall_object_path = assemble_file(&syscall_lib_path)?;
+      (program_object_path, syscall_object_path)
    };
 
    if freestanding {
@@ -307,6 +356,7 @@ fn compile_qbe(
          "-o".into(),
          the_final_path.into(),
          program_object_path.into(),
+         #[cfg(not(feature = "ferb"))]
          syscall_object_path.into(),
       ];
 
@@ -317,11 +367,11 @@ fn compile_qbe(
       linker_args.push("--end-group".into());
 
       if let Some(external_linker) = linker.or({
-         #[cfg(not(target_os = "linux"))]
+         #[cfg(not(all(target_os = "linux", feature = "wild")))]
          {
             Some(OsStr::new("ld"))
          }
-         #[cfg(target_os = "linux")]
+         #[cfg(all(target_os = "linux", feature = "wild"))]
          {
             None
          }
@@ -335,11 +385,11 @@ fn compile_qbe(
             Err(e) => Err(QbeCompilationError::LdInvocation(e)),
          }
       } else {
-         #[cfg(not(target_os = "linux"))]
+         #[cfg(not(all(target_os = "linux", feature = "wild")))]
          {
             unreachable!()
          }
-         #[cfg(target_os = "linux")]
+         #[cfg(all(target_os = "linux", feature = "wild"))]
          {
             let args = libwild::Args::parse(|| linker_args.iter().map(|s| s.to_str().unwrap())).unwrap();
 
@@ -352,7 +402,9 @@ fn compile_qbe(
    } else {
       let mut cc_command = Command::new("cc");
       cc_command.arg("-o");
-      cc_command.args(&[the_final_path, program_object_path, syscall_object_path]);
+      cc_command.args(&[the_final_path, program_object_path]);
+      #[cfg(not(feature = "ferb"))]
+      cc_command.arg(syscall_object_path);
       if let Some(specified_linker) = linker {
          cc_command.arg(format!("-fuse-ld={}", specified_linker.to_str().unwrap()));
       }

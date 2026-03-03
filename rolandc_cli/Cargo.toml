@@ -8,12 +8,16 @@ edition = "2024"
 pico-args = { version = "0.5", default-features=false, features=[] }
 rolandc = { path = "../rolandc" }
 dhat = { version = "0.3", optional = true }
+ferb = { path = "../../rustc_codegen_ferb/ferb", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libwild = "0.8"
+libwild = { version = "0.8", optional = true }
 # We don't actually depend on perf-event, working around an issue with this transitive dependency
 # After updating libwild we can toss this 
-perf-event = "=0.4.8"
+perf-event = { version = "=0.4.8", optional = true }
 
 [features]
+default = ["wild"]
 dhat-heap = ["dep:dhat"]
+wild = ["dep:libwild", "dep:perf-event"]
+ferb = ["dep:ferb"]

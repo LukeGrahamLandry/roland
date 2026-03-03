@@ -1228,9 +1228,11 @@ fn emit_expr_as_val(expr_index: ExpressionId, ctx: &mut GenerationContext) -> st
             write!(ctx.buf, "{}", *val)
          }
       }
+      // ferb's float parsing is dumb as rocks so be explicit about what bits to use
+      // instead of relying on d_/s_ prefix. this makes the ir less readable tho :(
       Expression::FloatLiteral(v) => match *expr_node.exp_type.as_ref().unwrap() {
-         F64_TYPE => write!(ctx.buf, "d_{}", v),
-         F32_TYPE => write!(ctx.buf, "s_{}", v),
+         F64_TYPE => write!(ctx.buf, "{}", v.to_bits()),
+         F32_TYPE => write!(ctx.buf, "{}", (*v as f32).to_bits()),
          _ => unreachable!(),
       },
       Expression::BoolLiteral(val) => {

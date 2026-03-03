@@ -1,0 +1,36 @@
+
+function s $sqrt_f32(s %x) {
+@start
+    %x =s sqrt %x
+    ret %x
+}
+ 
+function d $sqrt_f64(d %x) {
+@start
+    %x =d sqrt %x
+    ret %x
+}
+
+asm $syscall4 = {
+    data $amd64 = { b 
+        0x48 0x89 0xf8  # mov %rdi, %rax
+        0x4d 0x89 0xc2  # mov %r8,  %r10
+        0x48 0x89 0xf7  # mov %rsi, %rdi
+        0x48 0x89 0xd6  # mov %rdx, %rsi
+        0x48 0x89 0xca  # mov %rcx, %rdx
+        0x0f 0x05       # syscall
+        0xc3            # ret
+    }
+}
+
+function l $syscall3(l %n, l %a, l %b, l %c) {
+@start
+    %r =l call $syscall4(l %n, l %a, l %b, l %c, l 0)
+    ret %r
+}
+
+function l $syscall1(l %n, l %a) {
+@start
+    %r =l call $syscall3(l %n, l %a, l 0, l 0)
+    ret %r
+}
