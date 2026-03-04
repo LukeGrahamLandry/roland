@@ -1,7 +1,8 @@
 proc main() {
    when sizeof$<usize>() == 4 {
       let x = &fd_write;
-      x(0, 0 transmute &ciovec, 0, 0 transmute &usize);
+      let out = 0;
+      x(0, 0 transmute &ciovec, 0, &out);
    } else {
       let x = &syscall1;
       x(12, 0);
