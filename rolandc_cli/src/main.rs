@@ -202,6 +202,7 @@ fn main() {
    }
 }
 
+#[allow(dead_code)]
 enum QbeCompilationError {
    AsInvocation(std::io::Error),
    AsExecution(ExitStatus),
@@ -209,7 +210,6 @@ enum QbeCompilationError {
    LdExecution(Option<ExitStatus>),
    QbeInvocation(std::io::Error),
    QbeExecution(ExitStatus),
-   #[cfg(feature = "ferb")]
    Ferb(String),
 }
 
@@ -237,7 +237,6 @@ impl Display for QbeCompilationError {
          QbeCompilationError::QbeInvocation(io_err) => {
             write!(f, "Failed to invoke qbe: {}", io_err)
          }
-         #[cfg(feature = "ferb")]
          QbeCompilationError::Ferb(msg) => write!(f, "ferb failed: {}", msg),
       }
    }

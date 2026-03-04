@@ -35,6 +35,7 @@ struct Opts {
    amd64: bool,
    preserve_artifacts: bool,
    wasm_executor: String,
+   wasm_validate: bool,
 }
 
 fn parse_path(s: &std::ffi::OsStr) -> Result<std::path::PathBuf, &'static str> {
@@ -55,6 +56,7 @@ fn parse_args() -> Result<Opts, pico_args::Error> {
          .opt_value_from_str("--wasm-executor")?
          .unwrap_or_else(|| "wasmtime".into()),
       test_path: pargs.free_from_os_str(parse_path)?,
+      wasm_validate: !pargs.contains("--no-wasm-validate"),
    };
 
    let remaining_args = pargs.finish();
@@ -157,6 +159,7 @@ fn main() -> Result<(), &'static str> {
          opts.amd64,
          opts.preserve_artifacts,
          &opts.wasm_executor,
+         opts.wasm_validate,
       );
       let name = entry.strip_prefix(&prefix).unwrap().to_str().unwrap();
       match test_ok {
@@ -358,6 +361,7 @@ fn test_result(
    amd64: bool,
    preserve_artifacts: bool,
    wasm_executor: &str,
+   wasm_validate: bool,
 ) -> Result<String, TestFailureDetails> {
    let stderr_text = String::from_utf8_lossy(&tc_output.stderr);
 
@@ -418,7 +422,7 @@ fn test_result(
 
          stderr_text
       } else {
-         if !amd64 {
+         if wasm_validate && !amd64 {
             // we shouldn't run the program, but should at least validate it
             let mut prog_command = Command::new("wasm-validate");
             prog_command.arg(prog_path.as_os_str());

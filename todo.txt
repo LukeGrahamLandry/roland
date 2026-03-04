@@ -9,7 +9,7 @@
     - always return error instead of panicking
     - more sane api than compile_aot()
 - run the success tests jitted as well
-- try my import_wasm as the wasm_executor
+- put syscall.ssa first so i can inline sqrt
 - i can target macos/arm/rv too 
     - need different magic numbers like lib/amd64.rol
 - i can do wasm too 
